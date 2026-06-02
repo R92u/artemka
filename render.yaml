@@ -1,0 +1,13 @@
+# Blueprint для Render — настройки подхватятся автоматически.
+# В Render: New → Blueprint → выбрать этот репозиторий.
+services:
+  - type: web
+    name: igra-v-artema
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
