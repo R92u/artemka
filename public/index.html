@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ИГРА В АРТЁМА</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#04060a;
+    --ink:#e9f1ff;
+    --dim:#7d8aa0;
+    --glow:rgba(210,232,255,.55);
+    --glow-soft:rgba(180,210,255,.22);
+    --line:rgba(150,180,220,.18);
+    --danger:#ff5b6e;
+    --good:#5bffb0;
+    --gold:#ffd86b;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --disp:'Russo One',var(--mono);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--mono);
+    overflow:hidden;
+    position:relative;
+    line-height:1.5;
+  }
+  #stars{position:fixed;inset:0;z-index:0;display:block}
+  /* лёгкая виньетка + скан-линии для атмосферы */
+  body::after{
+    content:"";position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:radial-gradient(ellipse at 50% 35%,transparent 40%,rgba(0,0,0,.55) 100%);
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.4;
+    background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.012) 3px 4px);
+  }
+
+  .wrap{
+    position:relative;z-index:2;height:100%;
+    display:flex;align-items:center;justify-content:center;
+    padding:22px;overflow-y:auto;
+  }
+  .screen{display:none;width:100%;max-width:560px;animation:rise .5s ease both}
+  .screen.active{display:block}
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+  /* ---------- Заголовок ---------- */
+  .brand{text-align:center;margin-bottom:38px}
+  .brand h1{
+    font-family:var(--disp);font-size:clamp(34px,9vw,62px);
+    letter-spacing:.04em;line-height:1;
+    text-shadow:0 0 4px var(--glow),0 0 22px var(--glow-soft);
+  }
+  .brand .sub{
+    margin-top:14px;color:var(--dim);font-size:12px;letter-spacing:.42em;
+    text-transform:uppercase;
+  }
+
+  /* ---------- Поля и кнопки ---------- */
+  .field{
+    width:100%;background:rgba(255,255,255,.03);
+    border:1px solid var(--line);border-radius:12px;
+    color:var(--ink);font-family:var(--mono);font-size:16px;
+    padding:15px 16px;outline:none;transition:.25s;text-align:center;letter-spacing:.04em;
+  }
+  .field::placeholder{color:var(--dim)}
+  .field:focus{border-color:var(--glow);box-shadow:0 0 0 1px var(--glow-soft),0 0 18px var(--glow-soft)}
+
+  .btn{
+    width:100%;display:block;cursor:pointer;
+    background:transparent;color:var(--ink);
+    border:1px solid var(--line);border-radius:12px;
+    font-family:var(--mono);font-size:15px;font-weight:600;letter-spacing:.14em;
+    padding:16px;text-transform:uppercase;transition:.25s;
+  }
+  .btn:hover:not(:disabled){
+    border-color:var(--glow);box-shadow:0 0 22px var(--glow-soft);
+    text-shadow:0 0 8px var(--glow);
+  }
+  .btn:active:not(:disabled){transform:translateY(1px)}
+  .btn:disabled{opacity:.35;cursor:not-allowed}
+  .btn.primary{border-color:rgba(210,232,255,.45);text-shadow:0 0 6px var(--glow)}
+  .btn.ghost{font-size:13px;letter-spacing:.1em;color:var(--dim);border-color:transparent}
+  .btn.ghost:hover{color:var(--ink)}
+  .btn.small{padding:11px;font-size:12px;letter-spacing:.08em}
+  .stack>*+*{margin-top:14px}
+  .row{display:flex;gap:12px}
+  .row>*{flex:1}
+
+  .hint{color:var(--dim);font-size:12.5px;text-align:center;margin-top:4px}
+  .err{color:var(--danger);font-size:13px;text-align:center;min-height:18px;margin-top:6px}
+
+  /* ---------- Лобби ---------- */
+  .code-box{text-align:center;margin-bottom:26px}
+  .code-box .lab{color:var(--dim);font-size:11px;letter-spacing:.4em;text-transform:uppercase}
+  .code-box .code{
+    font-family:var(--disp);font-size:46px;letter-spacing:.2em;margin-top:8px;
+    text-shadow:0 0 6px var(--glow),0 0 24px var(--glow-soft);
+  }
+  .players{list-style:none;margin:8px 0 22px}
+  .players li{
+    display:flex;align-items:center;gap:12px;
+    border:1px solid var(--line);border-radius:12px;
+    padding:13px 15px;margin-bottom:10px;transition:.25s;
+    background:rgba(255,255,255,.02);
+  }
+  .players li.me{border-color:rgba(210,232,255,.4)}
+  .players li.ready{box-shadow:inset 0 0 0 1px var(--glow-soft)}
+  .p-name{flex:1;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .p-name .tag{color:var(--dim);font-size:11px;margin-left:6px}
+  .p-state{font-size:11px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase}
+  .p-state.on{color:var(--good);text-shadow:0 0 8px rgba(91,255,176,.5)}
+  .iam-btn{
+    border:1px solid var(--line);background:transparent;color:var(--dim);
+    border-radius:9px;font-family:var(--mono);font-size:11px;font-weight:600;
+    letter-spacing:.06em;padding:8px 12px;cursor:pointer;transition:.25s;white-space:nowrap;
+    text-transform:uppercase;
+  }
+  .iam-btn.self{color:var(--ink);border-color:rgba(210,232,255,.45)}
+  .iam-btn.self.on{
+    background:rgba(91,255,176,.1);border-color:var(--good);color:var(--good);
+    text-shadow:0 0 8px rgba(91,255,176,.5);
+  }
+  .iam-btn:disabled{opacity:.4;cursor:default}
+
+  /* ---------- Игра ---------- */
+  .q-head{text-align:center;margin-bottom:22px}
+  .q-num{color:var(--dim);font-size:11px;letter-spacing:.4em;text-transform:uppercase}
+  .q-text{
+    font-family:var(--disp);font-size:clamp(19px,4.4vw,26px);margin-top:10px;line-height:1.3;
+    text-shadow:0 0 14px var(--glow-soft);
+  }
+  .q-text.artem{color:var(--gold);text-shadow:0 0 16px rgba(255,216,107,.4)}
+
+  .slots{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:20px}
+  .slot{
+    border:1px solid var(--line);border-radius:10px;padding:8px 11px;
+    font-size:13px;display:flex;align-items:center;gap:7px;transition:.25s;
+    background:rgba(255,255,255,.02);
+  }
+  .slot .idx{color:var(--dim);font-size:11px}
+  .slot.turn{
+    border-color:var(--glow);box-shadow:0 0 18px var(--glow-soft);
+    text-shadow:0 0 8px var(--glow);
+  }
+  .slot.me .idx{color:var(--ink)}
+  .scramble{font-weight:600;letter-spacing:.05em}
+
+  .answer-box{
+    border:1px solid var(--line);border-radius:14px;padding:18px;
+    min-height:120px;margin-bottom:18px;background:rgba(255,255,255,.02);
+  }
+  .answer-box .who{color:var(--dim);font-size:12px;letter-spacing:.1em;margin-bottom:10px}
+  .live-text{font-size:17px;min-height:26px;word-break:break-word;white-space:pre-wrap}
+  .live-text .caret{
+    display:inline-block;width:9px;height:19px;background:var(--glow);
+    margin-left:2px;vertical-align:-3px;animation:blink 1s steps(1) infinite;
+  }
+  @keyframes blink{50%{opacity:0}}
+  textarea.field{resize:none;text-align:left;min-height:90px}
+
+  .log{margin-top:6px}
+  .log h3{color:var(--dim);font-size:11px;letter-spacing:.3em;text-transform:uppercase;margin:18px 0 10px}
+  .log-q{border-left:1px solid var(--line);padding-left:13px;margin-bottom:16px}
+  .log-q .lq{color:var(--dim);font-size:12.5px;margin-bottom:7px}
+  .log-a{font-size:14px;margin-bottom:6px;display:flex;gap:9px}
+  .log-a .li{color:var(--dim);font-size:12px;min-width:54px}
+
+  /* ---------- Голосование ---------- */
+  .vote-grid{display:grid;grid-template-columns:1fr;gap:11px;margin:8px 0 18px}
+  .vote-opt{
+    border:1px solid var(--line);border-radius:12px;padding:15px;cursor:pointer;
+    background:rgba(255,255,255,.02);transition:.25s;font-size:15px;
+    display:flex;align-items:center;gap:10px;text-align:left;color:var(--ink);
+    font-family:var(--mono);
+  }
+  .vote-opt:hover{border-color:var(--glow);box-shadow:0 0 18px var(--glow-soft)}
+  .vote-opt.picked{border-color:var(--gold);box-shadow:0 0 20px rgba(255,216,107,.25);color:var(--gold)}
+  .vote-opt .vi{color:var(--dim);font-size:12px;min-width:30px}
+
+  /* ---------- Результаты ---------- */
+  .verdict{text-align:center;margin-bottom:26px}
+  .verdict .big{font-family:var(--disp);font-size:clamp(26px,6vw,38px);line-height:1.15}
+  .verdict.win .big{color:var(--good);text-shadow:0 0 18px rgba(91,255,176,.4)}
+  .verdict.lose .big{color:var(--danger);text-shadow:0 0 18px rgba(255,91,110,.4)}
+  .verdict .small{color:var(--dim);font-size:13px;margin-top:10px;letter-spacing:.1em}
+  .res-list{list-style:none;margin:0 0 24px}
+  .res-list li{
+    display:flex;align-items:center;gap:12px;padding:12px 15px;margin-bottom:9px;
+    border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.02);
+  }
+  .res-list li.artem{border-color:var(--gold);box-shadow:0 0 18px rgba(255,216,107,.2)}
+  .res-list .rn{flex:1;font-size:15px}
+  .res-list .crown{color:var(--gold);font-size:13px;letter-spacing:.06em}
+  .res-list .votes{color:var(--dim);font-size:12px}
+
+  .center{text-align:center}
+  .mt{margin-top:18px}
+  .progress{color:var(--dim);font-size:13px;text-align:center;letter-spacing:.1em;margin-top:6px}
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div class="wrap">
+
+  <!-- ГЛАВНЫЙ ЭКРАН -->
+  <section id="screen-home" class="screen active">
+    <div class="brand">
+      <h1>ИГРА В АРТЁМА</h1>
+      <div class="sub">найди того самого</div>
+    </div>
+    <div class="stack">
+      <input id="nick" class="field" maxlength="18" placeholder="твой ник" autocomplete="off">
+      <button id="btn-create" class="btn primary">Создать лобби</button>
+      <button id="btn-join-toggle" class="btn">Подключиться к лобби</button>
+      <div id="join-box" class="stack" style="display:none">
+        <input id="room-input" class="field" maxlength="4" placeholder="код лобби" autocomplete="off" style="text-transform:uppercase">
+        <button id="btn-join" class="btn primary">Войти</button>
+      </div>
+      <div id="home-err" class="err"></div>
+    </div>
+    <div class="hint mt">Нужно минимум 3 игрока · можно играть с телефонов в одной сети</div>
+  </section>
+
+  <!-- ЛОББИ -->
+  <section id="screen-lobby" class="screen">
+    <div class="code-box">
+      <div class="lab">код лобби</div>
+      <div id="lobby-code" class="code">----</div>
+      <div class="hint">скажи код друзьям, чтобы они вошли</div>
+    </div>
+    <ul id="players" class="players"></ul>
+    <div id="lobby-status" class="progress"></div>
+    <button id="btn-leave" class="btn ghost mt">← выйти</button>
+  </section>
+
+  <!-- ИГРА -->
+  <section id="screen-game" class="screen">
+    <div class="q-head">
+      <div id="q-num" class="q-num">вопрос 1</div>
+      <div id="q-text" class="q-text">—</div>
+    </div>
+    <div id="slots" class="slots"></div>
+
+    <div class="answer-box">
+      <div id="answer-who" class="who">ход игрока</div>
+      <div id="live-text" class="live-text"></div>
+      <div id="my-input" style="display:none;margin-top:12px">
+        <textarea id="answer-area" class="field" maxlength="280" placeholder="печатай ответ — остальные видят это вживую..."></textarea>
+        <button id="btn-submit" class="btn primary" style="margin-top:10px">Ответить</button>
+      </div>
+    </div>
+
+    <div id="host-controls" class="row" style="display:none">
+      <button id="btn-next" class="btn small">Следующий вопрос</button>
+      <button id="btn-vote" class="btn small primary">К голосованию</button>
+    </div>
+    <div id="wait-host" class="progress" style="display:none">раунд завершён · ждём ведущего…</div>
+
+    <div class="log">
+      <h3>ответы</h3>
+      <div id="log-body"></div>
+    </div>
+  </section>
+
+  <!-- ГОЛОСОВАНИЕ -->
+  <section id="screen-voting" class="screen">
+    <div class="brand" style="margin-bottom:24px">
+      <h1 style="font-size:clamp(26px,7vw,42px)">КТО АРТЁМ?</h1>
+      <div class="sub" style="margin-top:12px">выбери одного</div>
+    </div>
+    <div id="vote-grid" class="vote-grid"></div>
+    <div id="vote-progress" class="progress"></div>
+  </section>
+
+  <!-- РЕЗУЛЬТАТЫ -->
+  <section id="screen-results" class="screen">
+    <div id="verdict" class="verdict">
+      <div class="big" id="verdict-big">—</div>
+      <div class="small" id="verdict-small"></div>
+    </div>
+    <ul id="res-list" class="res-list"></ul>
+    <button id="btn-again" class="btn primary" style="display:none">Играть снова</button>
+    <div id="again-wait" class="progress" style="display:none">ждём ведущего…</div>
+    <button id="btn-leave2" class="btn ghost mt">← выйти в меню</button>
+  </section>
+
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+/* =================== ЗВЁЗДЫ =================== */
+(function(){
+  const c=document.getElementById('stars'),x=c.getContext('2d');
+  let stars=[],w,h;
+  function size(){w=c.width=innerWidth;h=c.height=innerHeight;build()}
+  function build(){
+    const n=Math.round(w*h/9000);
+    stars=Array.from({length:n},()=>({
+      x:Math.random()*w,y:Math.random()*h,
+      r:Math.random()*1.3+.2,
+      a:Math.random(),sp:Math.random()*.02+.004,
+      dx:(Math.random()-.5)*.04,dy:(Math.random()-.5)*.04
+    }));
+  }
+  function loop(){
+    x.clearRect(0,0,w,h);
+    for(const s of stars){
+      s.a+=s.sp; const tw=.45+Math.abs(Math.sin(s.a))*.55;
+      s.x+=s.dx;s.y+=s.dy;
+      if(s.x<0)s.x=w;if(s.x>w)s.x=0;if(s.y<0)s.y=h;if(s.y>h)s.y=0;
+      x.beginPath();x.arc(s.x,s.y,s.r,0,7);
+      x.fillStyle='rgba(225,240,255,'+(tw*.9)+')';
+      x.shadowBlur=6;x.shadowColor='rgba(200,225,255,.5)';
+      x.fill();
+    }
+    requestAnimationFrame(loop);
+  }
+  addEventListener('resize',size);size();loop();
+})();
+
+/* =================== МЕРЦАЮЩИЕ НИКИ =================== */
+const SYM='█▓▒░#@%&§※◆◇⌗▚▞✶✷∎';
+function scrambleStr(len){let s='';for(let i=0;i<len;i++)s+=SYM[(Math.random()*SYM.length)|0];return s}
+setInterval(()=>{
+  document.querySelectorAll('.scramble').forEach(el=>{
+    const len=+el.dataset.len||7;
+    el.textContent=scrambleStr(len);
+  });
+},90);
+// длина «имени» зависит от слота, чтобы выглядело по-разному, но стабильно по ширине
+function scrambleSpan(slot){
+  const len=6+((slot*3+4)%5); // 6..10
+  return `<span class="scramble" data-len="${len}"></span>`;
+}
+
+/* =================== СОСТОЯНИЕ =================== */
+const socket=io();
+const S={ id:null,room:null,host:false,phase:'home',
+  mySlot:null,isArtem:false,slotCount:0,
+  currentSlot:null,question:null,questionNum:0,
+  players:[], log:{} };
+
+const $=s=>document.querySelector(s);
+const screens=['home','lobby','game','voting','results'];
+function show(name){
+  S.phase=name;
+  screens.forEach(s=>$('#screen-'+s).classList.toggle('active',s===name));
+}
+
+/* =================== ГЛАВНЫЙ ЭКРАН =================== */
+$('#btn-join-toggle').onclick=()=>{
+  const b=$('#join-box'); b.style.display=b.style.display==='none'?'block':'none';
+};
+$('#btn-create').onclick=()=>{
+  const name=$('#nick').value.trim();
+  if(!name)return setErr('введи ник');
+  socket.emit('createLobby',{name},res=>{
+    if(!res.ok)return setErr(res.error||'ошибка');
+    S.id=res.playerId;S.room=res.roomCode;
+  });
+};
+$('#btn-join').onclick=()=>{
+  const name=$('#nick').value.trim();
+  const code=$('#room-input').value.trim().toUpperCase();
+  if(!name)return setErr('введи ник');
+  if(!code)return setErr('введи код лобби');
+  socket.emit('joinLobby',{name,roomCode:code},res=>{
+    if(!res.ok)return setErr(res.error||'ошибка');
+    S.id=res.playerId;S.room=res.roomCode;
+  });
+};
+function setErr(t){$('#home-err').textContent=t;}
+
+/* =================== ЛОББИ =================== */
+socket.on('lobbyUpdate',d=>{
+  S.room=d.roomCode;S.host=(d.hostId===S.id);S.players=d.players;
+  $('#lobby-code').textContent=d.roomCode;
+  const ul=$('#players');ul.innerHTML='';
+  d.players.forEach(p=>{
+    const me=p.id===S.id;
+    const li=document.createElement('li');
+    li.className=(me?'me ':'')+(p.ready?'ready':'');
+    li.innerHTML=`
+      <span class="p-name">${esc(p.name)}${me?'<span class="tag">(ты)</span>':''}</span>
+      <span class="p-state ${p.ready?'on':''}">${p.ready?'готов':'ждёт'}</span>
+      <button class="iam-btn ${me?'self':''} ${p.ready?'on':''}" ${me?'':'disabled'}>я артём</button>`;
+    if(me) li.querySelector('.iam-btn').onclick=()=>socket.emit('toggleReady');
+    ul.appendChild(li);
+  });
+  const need=d.minPlayers, cur=d.players.length, ready=d.players.filter(p=>p.ready).length;
+  $('#lobby-status').textContent = cur<need
+    ? `нужно ещё ${need-cur} игрок(а) для старта`
+    : `готовы ${ready}/${cur} · когда все нажмут «я артём» — старт`;
+  if(S.phase!=='lobby' && S.phase!=='game' && S.phase!=='voting' && S.phase!=='results') show('lobby');
+  if(S.phase==='home') show('lobby');
+});
+$('#btn-leave').onclick=leave;
+$('#btn-leave2').onclick=leave;
+function leave(){socket.emit('leaveLobby');resetLocal();show('home');setErr('');}
+function resetLocal(){S.room=null;S.host=false;S.mySlot=null;S.isArtem=false;S.log={};}
+
+/* =================== ИГРА =================== */
+socket.on('gameStarted',d=>{
+  S.mySlot=d.yourSlot;S.isArtem=d.isArtem;S.slotCount=d.slotCount;S.log={};
+  $('#log-body').innerHTML='';
+  show('game');
+});
+socket.on('newQuestion',d=>{
+  S.questionNum=d.questionNumber;S.question=d.question;
+  $('#q-num').textContent='вопрос '+d.questionNumber;
+  if(d.question===null){
+    $('#q-text').textContent='🎭 ТЫ АРТЁМ — вопрос скрыт. Импровизируй!';
+    $('#q-text').classList.add('artem');
+  }else{
+    $('#q-text').textContent=d.question;
+    $('#q-text').classList.remove('artem');
+  }
+  S.log[d.questionNumber]={question:d.question,entries:[]};
+  renderLog();
+  $('#host-controls').style.display='none';
+  $('#wait-host').style.display='none';
+});
+socket.on('turnUpdate',d=>{
+  S.currentSlot=d.currentSlot;
+  renderSlots();
+  const mine=d.currentSlot===S.mySlot;
+  $('#live-text').innerHTML='';
+  $('#answer-who').innerHTML = mine
+    ? 'твой ход — печатай ответ'
+    : 'отвечает '+inlineSlot(d.currentSlot);
+  $('#my-input').style.display=mine?'block':'none';
+  if(mine){const a=$('#answer-area');a.value='';a.disabled=false;$('#btn-submit').disabled=false;setTimeout(()=>a.focus(),50);}
+  $('#host-controls').style.display='none';
+  $('#wait-host').style.display='none';
+});
+socket.on('liveTyping',d=>{
+  if(d.slot===S.mySlot)return; // свой текст уже виден
+  $('#live-text').innerHTML=esc(d.text)+'<span class="caret"></span>';
+});
+socket.on('answerSubmitted',d=>{
+  const q=S.log[d.questionNumber]; if(q)q.entries.push({slot:d.slot,text:d.text});
+  renderLog();
+  if(d.slot===S.mySlot){$('#my-input').style.display='none';}
+  $('#live-text').innerHTML=esc(d.text);
+  $('#answer-who').innerHTML=inlineSlot(d.slot)+' ответил';
+});
+socket.on('roundComplete',d=>{
+  S.host=(d.hostId===S.id);
+  $('#my-input').style.display='none';
+  if(S.host){$('#host-controls').style.display='flex';$('#wait-host').style.display='none';}
+  else{$('#wait-host').style.display='block';$('#host-controls').style.display='none';}
+});
+
+const area=$('#answer-area');
+area.addEventListener('input',()=>{
+  socket.emit('typing',{text:area.value});
+});
+$('#btn-submit').onclick=()=>{
+  socket.emit('submitAnswer',{text:area.value});
+  area.disabled=true;$('#btn-submit').disabled=true;
+};
+$('#btn-next').onclick=()=>socket.emit('nextQuestion');
+$('#btn-vote').onclick=()=>socket.emit('startVoting');
+
+function renderSlots(){
+  const box=$('#slots');box.innerHTML='';
+  for(let i=0;i<S.slotCount;i++){
+    const d=document.createElement('div');
+    d.className='slot'+(i===S.currentSlot?' turn':'')+(i===S.mySlot?' me':'');
+    d.innerHTML=`<span class="idx">#${i+1}</span>${scrambleSpan(i)}${i===S.mySlot?'<span class="idx">(ты)</span>':''}`;
+    box.appendChild(d);
+  }
+}
+function inlineSlot(slot){return `<b style="color:var(--ink)">#${slot+1}</b> `+scrambleSpan(slot);}
+
+function renderLog(){
+  const body=$('#log-body');body.innerHTML='';
+  Object.keys(S.log).sort((a,b)=>a-b).forEach(qn=>{
+    const q=S.log[qn];
+    const div=document.createElement('div');div.className='log-q';
+    const qLabel = q.question===null ? '🎭 (скрытый вопрос Артёма)' : esc(q.question);
+    let html=`<div class="lq">${qn}. ${qLabel}</div>`;
+    q.entries.forEach(e=>{
+      html+=`<div class="log-a"><span class="li">#${e.slot+1} ${miniScramble(e.slot)}</span><span>${esc(e.text)}</span></div>`;
+    });
+    div.innerHTML=html;body.appendChild(div);
+  });
+}
+function miniScramble(slot){const len=4;return `<span class="scramble" data-len="${len}" style="font-size:11px;color:var(--dim)"></span>`;}
+
+/* =================== ГОЛОСОВАНИЕ =================== */
+let myVote=null;
+socket.on('votingStarted',d=>{
+  myVote=null;show('voting');
+  const g=$('#vote-grid');g.innerHTML='';
+  d.slots.forEach(slot=>{
+    if(slot===S.mySlot)return; // за себя не голосуем
+    const b=document.createElement('button');
+    b.className='vote-opt';
+    b.innerHTML=`<span class="vi">#${slot+1}</span>${scrambleSpan(slot)}`;
+    b.onclick=()=>{
+      myVote=slot;
+      socket.emit('castVote',{slot});
+      [...g.children].forEach(c=>c.classList.remove('picked'));
+      b.classList.add('picked');
+    };
+    g.appendChild(b);
+  });
+  $('#vote-progress').textContent='голосуют…';
+});
+socket.on('voteUpdate',d=>{
+  $('#vote-progress').textContent=`проголосовало ${d.votedCount}/${d.total}`;
+});
+
+/* =================== РЕЗУЛЬТАТЫ =================== */
+socket.on('results',d=>{
+  show('results');
+  const v=$('#verdict');
+  v.className='verdict '+(d.groupWon?'win':'lose');
+  $('#verdict-big').textContent=d.groupWon?'АРТЁМ РАСКРЫТ!':'АРТЁМ УСКОЛЬЗНУЛ';
+  $('#verdict-small').textContent=d.groupWon
+    ?'коллектив вычислил того самого'
+    :'вы не угадали — Артём победил';
+  const ul=$('#res-list');ul.innerHTML='';
+  d.players.forEach(p=>{
+    const cnt=d.votes[p.slot]||0;
+    const li=document.createElement('li');
+    li.className=p.wasArtem?'artem':'';
+    li.innerHTML=`
+      <span class="vi" style="color:var(--dim);font-size:12px;min-width:26px">#${p.slot+1}</span>
+      <span class="rn">${esc(p.name)} ${p.wasArtem?'<span class="crown">🎭 АРТЁМ</span>':''}</span>
+      <span class="votes">${cnt} голос(ов)</span>`;
+    ul.appendChild(li);
+  });
+  if(S.host){$('#btn-again').style.display='block';$('#again-wait').style.display='none';}
+  else{$('#btn-again').style.display='none';$('#again-wait').style.display='block';}
+});
+$('#btn-again').onclick=()=>socket.emit('playAgain');
+
+socket.on('returnToLobby',()=>{ show('lobby'); });
+socket.on('playerDropped',d=>{
+  // мягкое уведомление: вернёмся в лобби автоматически по returnToLobby
+});
+
+/* =================== УТИЛИТЫ =================== */
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// Enter в поле кода = войти
+$('#room-input').addEventListener('keydown',e=>{if(e.key==='Enter')$('#btn-join').click();});
+$('#nick').addEventListener('keydown',e=>{if(e.key==='Enter')$('#btn-create').click();});
+</script>
+</body>
+</html>
