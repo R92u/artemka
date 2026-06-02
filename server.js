@@ -91,6 +91,25 @@ function emitLobby(room) {
   });
 }
 
+/* Список открытых лобби (фаза «lobby») для экрана выбора */
+function openLobbies() {
+  return Object.values(rooms)
+    .filter(r => r.phase === 'lobby')
+    .map(r => {
+      const host = r.players[r.hostId];
+      return {
+        code: r.code,
+        hostName: host ? host.name : '—',
+        count: Object.keys(r.players).length,
+        max: MAX_PLAYERS
+      };
+    })
+    .sort((a, b) => b.count - a.count);
+}
+function broadcastLobbyList() {
+  io.to('browsing').emit('lobbyList', openLobbies());
+}
+
 function slotOf(room, socketId) {
   return room.players[socketId] ? room.players[socketId].slot : null;
 }
@@ -127,6 +146,7 @@ function startGame(room) {
   }
 
   newQuestion(room);
+  broadcastLobbyList();
 }
 
 function newQuestion(room) {
@@ -207,11 +227,19 @@ function returnToLobby(room) {
   for (const p of Object.values(room.players)) p.ready = false;
   io.to(room.code).emit('returnToLobby', {});
   emitLobby(room);
+  broadcastLobbyList();
 }
 
 /* ---------- Сокеты ---------- */
 io.on('connection', (socket) => {
   let joinedRoom = null;
+
+  /* Экран выбора: подписка на список открытых лобби */
+  socket.on('enterBrowser', () => {
+    socket.join('browsing');
+    socket.emit('lobbyList', openLobbies());
+  });
+  socket.on('leaveBrowser', () => socket.leave('browsing'));
 
   function leaveCurrentRoom() {
     if (!joinedRoom || !rooms[joinedRoom]) return;
@@ -222,6 +250,7 @@ io.on('connection', (socket) => {
 
     if (Object.keys(room.players).length === 0) {
       delete rooms[room.code];
+      broadcastLobbyList();
       return;
     }
     // переназначаем хоста при необходимости
@@ -235,6 +264,7 @@ io.on('connection', (socket) => {
     } else {
       emitLobby(room);
     }
+    broadcastLobbyList();
     joinedRoom = null;
   }
 
@@ -260,10 +290,12 @@ io.on('connection', (socket) => {
     const room = rooms[code];
     room.players[socket.id] = { id: socket.id, name, ready: false, slot: 0 };
     socket.join(code);
+    socket.leave('browsing');
     joinedRoom = code;
 
     cb && cb({ ok: true, roomCode: code, playerId: socket.id });
     emitLobby(room);
+    broadcastLobbyList();
   });
 
   /* Подключиться к лобби */
@@ -280,10 +312,12 @@ io.on('connection', (socket) => {
     const slot = Object.keys(room.players).length;
     room.players[socket.id] = { id: socket.id, name, ready: false, slot };
     socket.join(roomCode);
+    socket.leave('browsing');
     joinedRoom = roomCode;
 
     cb && cb({ ok: true, roomCode, playerId: socket.id });
     emitLobby(room);
+    broadcastLobbyList();
   });
 
   /* Кнопка «Я АРТЁМ» = готовность */

@@ -204,6 +204,36 @@
   .center{text-align:center}
   .mt{margin-top:18px}
   .progress{color:var(--dim);font-size:13px;text-align:center;letter-spacing:.1em;margin-top:6px}
+
+  /* ---------- Браузер лобби ---------- */
+  .lobby-browser{margin-top:30px;border-top:1px solid var(--line);padding-top:22px}
+  .lb-head{
+    display:flex;align-items:center;justify-content:space-between;
+    color:var(--dim);font-size:11px;letter-spacing:.34em;text-transform:uppercase;margin-bottom:14px;
+  }
+  .lb-refresh{
+    background:transparent;border:1px solid var(--line);color:var(--dim);
+    border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:15px;transition:.25s;
+  }
+  .lb-refresh:hover{color:var(--ink);border-color:var(--glow);box-shadow:0 0 14px var(--glow-soft);transform:rotate(90deg)}
+  .lobby-list{list-style:none;margin:0}
+  .lobby-list li{
+    display:flex;align-items:center;gap:12px;
+    border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:10px;
+    background:rgba(255,255,255,.02);transition:.25s;animation:rise .35s ease both;
+  }
+  .lobby-list li:hover{border-color:var(--glow-soft)}
+  .ll-info{flex:1;min-width:0}
+  .ll-host{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ll-meta{color:var(--dim);font-size:11.5px;letter-spacing:.06em;margin-top:2px}
+  .ll-meta .ccode{color:var(--glow);letter-spacing:.14em}
+  .ll-join{
+    border:1px solid rgba(210,232,255,.45);background:transparent;color:var(--ink);
+    border-radius:9px;font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.1em;
+    padding:9px 16px;cursor:pointer;transition:.25s;text-transform:uppercase;white-space:nowrap;
+  }
+  .ll-join:hover{box-shadow:0 0 16px var(--glow-soft);text-shadow:0 0 8px var(--glow)}
+  .ll-join:disabled{opacity:.35;cursor:not-allowed;border-color:var(--line);color:var(--dim)}
 </style>
 </head>
 <body>
@@ -219,14 +249,25 @@
     <div class="stack">
       <input id="nick" class="field" maxlength="18" placeholder="твой ник" autocomplete="off">
       <button id="btn-create" class="btn primary">Создать лобби</button>
-      <button id="btn-join-toggle" class="btn">Подключиться к лобби</button>
-      <div id="join-box" class="stack" style="display:none">
-        <input id="room-input" class="field" maxlength="4" placeholder="код лобби" autocomplete="off" style="text-transform:uppercase">
-        <button id="btn-join" class="btn primary">Войти</button>
-      </div>
       <div id="home-err" class="err"></div>
     </div>
-    <div class="hint mt">Нужно минимум 3 игрока · можно играть с телефонов в одной сети</div>
+
+    <div class="lobby-browser">
+      <div class="lb-head">
+        <span>открытые лобби</span>
+        <button id="btn-refresh" class="lb-refresh" title="обновить">⟳</button>
+      </div>
+      <ul id="lobby-list" class="lobby-list"></ul>
+      <div id="lobby-empty" class="hint">пока нет открытых лобби — создай своё</div>
+
+      <button id="btn-code-toggle" class="btn ghost" style="margin-top:6px">войти по коду →</button>
+      <div id="join-box" class="row" style="display:none;margin-top:10px">
+        <input id="room-input" class="field" maxlength="4" placeholder="код" autocomplete="off" style="text-transform:uppercase">
+        <button id="btn-join" class="btn primary" style="flex:0 0 auto;padding-left:22px;padding-right:22px">Войти</button>
+      </div>
+    </div>
+
+    <div class="hint mt">Нужно минимум 3 игрока · можно играть с телефонов</div>
   </section>
 
   <!-- ЛОББИ -->
@@ -351,14 +392,21 @@ const S={ id:null,room:null,host:false,phase:'home',
 const $=s=>document.querySelector(s);
 const screens=['home','lobby','game','voting','results'];
 function show(name){
+  const prev=S.phase;
   S.phase=name;
   screens.forEach(s=>$('#screen-'+s).classList.toggle('active',s===name));
+  // на главном экране — подписываемся на список лобби; уходя — отписываемся
+  if(name==='home') socket.emit('enterBrowser');
+  else if(prev==='home') socket.emit('leaveBrowser');
 }
 
 /* =================== ГЛАВНЫЙ ЭКРАН =================== */
-$('#btn-join-toggle').onclick=()=>{
-  const b=$('#join-box'); b.style.display=b.style.display==='none'?'block':'none';
+$('#btn-code-toggle').onclick=()=>{
+  const b=$('#join-box'); b.style.display=b.style.display==='none'?'flex':'none';
+  if(b.style.display!=='none') $('#room-input').focus();
 };
+$('#btn-refresh').onclick=()=>socket.emit('enterBrowser');
+
 $('#btn-create').onclick=()=>{
   const name=$('#nick').value.trim();
   if(!name)return setErr('введи ник');
@@ -367,17 +415,40 @@ $('#btn-create').onclick=()=>{
     S.id=res.playerId;S.room=res.roomCode;
   });
 };
-$('#btn-join').onclick=()=>{
+function joinByCode(code){
   const name=$('#nick').value.trim();
-  const code=$('#room-input').value.trim().toUpperCase();
-  if(!name)return setErr('введи ник');
+  if(!name){setErr('сначала введи ник');$('#nick').focus();return;}
   if(!code)return setErr('введи код лобби');
   socket.emit('joinLobby',{name,roomCode:code},res=>{
     if(!res.ok)return setErr(res.error||'ошибка');
     S.id=res.playerId;S.room=res.roomCode;
   });
-};
+}
+$('#btn-join').onclick=()=>joinByCode($('#room-input').value.trim().toUpperCase());
+
+/* живой список открытых лобби */
+socket.on('lobbyList',list=>{
+  const ul=$('#lobby-list');ul.innerHTML='';
+  $('#lobby-empty').style.display=list.length?'none':'block';
+  list.forEach(l=>{
+    const full=l.count>=l.max;
+    const li=document.createElement('li');
+    li.innerHTML=`
+      <div class="ll-info">
+        <div class="ll-host">🎭 ${esc(l.hostName)}</div>
+        <div class="ll-meta">код <span class="ccode">${l.code}</span> · ${l.count}/${l.max} игроков${full?' · заполнено':''}</div>
+      </div>
+      <button class="ll-join" ${full?'disabled':''}>${full?'полно':'войти'}</button>`;
+    if(!full) li.querySelector('.ll-join').onclick=()=>joinByCode(l.code);
+    ul.appendChild(li);
+  });
+});
+
 function setErr(t){$('#home-err').textContent=t;}
+
+// подписаться на список лобби сразу и при каждом (пере)подключении
+socket.on('connect',()=>{ if(S.phase==='home') socket.emit('enterBrowser'); });
+if(socket.connected && S.phase==='home') socket.emit('enterBrowser');
 
 /* =================== ЛОББИ =================== */
 socket.on('lobbyUpdate',d=>{
