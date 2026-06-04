@@ -441,6 +441,7 @@ io.on('connection', (socket) => {
 
   /* Создать лобби */
   socket.on('createLobby', ({ name }, cb) => {
+    leaveCurrentRoom(); // нельзя сидеть в двух лобби сразу
     name = (name || '').trim().slice(0, 18) || 'Аноним';
     let code = genRoomCode();
     while (rooms[code]) code = genRoomCode();
@@ -470,6 +471,8 @@ io.on('connection', (socket) => {
     if (room.phase !== 'lobby') return cb && cb({ ok: false, error: 'Игра уже идёт' });
     if (Object.keys(room.players).length >= MAX_PLAYERS) return cb && cb({ ok: false, error: 'Лобби заполнено' });
 
+    leaveCurrentRoom(); // нельзя сидеть в двух лобби сразу
+    if (!rooms[roomCode]) return cb && cb({ ok: false, error: 'Лобби закрылось' });
     const slot = Object.keys(room.players).length;
     room.players[socket.id] = { id: socket.id, name, ready: false, slot, alive: true };
     socket.join(roomCode);

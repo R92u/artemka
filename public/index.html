@@ -336,10 +336,11 @@
     <div class="stack">
       <input id="nick" class="field" maxlength="18" placeholder="твой ник" autocomplete="off">
       <button id="btn-create" class="btn primary">Создать лобби</button>
+      <button id="btn-list" class="btn">📋 Открыть список лобби</button>
       <div id="home-err" class="err"></div>
     </div>
 
-    <div class="lobby-browser">
+    <div id="lobby-browser" class="lobby-browser" style="display:none">
       <div class="lb-head">
         <span>открытые лобби</span>
         <button id="btn-refresh" class="lb-refresh" title="обновить">⟳</button>
@@ -467,7 +468,7 @@ function scrambleSpan(slot){ return `<span class="nick">${symbolsFor(slot)}</spa
 
 /* =================== СОСТОЯНИЕ =================== */
 const socket=io();
-const S={ id:null, room:null, host:false, phase:'home',
+const S={ id:null, room:null, host:false, phase:'home', listOpen:false,
   mySlot:null, isArtem:false, artemClaimed:false,
   slotCount:0, totalQuestions:0,
   slotsAlive:{}, slotSymbols:{}, responderSlot:null, questionNum:0,
@@ -481,8 +482,13 @@ function show(name){
   const inRoom = name!=='home';
   $('#chat-toggle').style.display = inRoom ? 'block' : 'none';
   if(!inRoom) $('#chat').classList.add('hidden');
-  if(name==='home') socket.emit('enterBrowser');
-  else if(prev==='home') socket.emit('leaveBrowser');
+  if(name==='home'){ resetList(); }
+  else if(prev==='home' && S.listOpen){ socket.emit('leaveBrowser'); S.listOpen=false; }
+}
+function resetList(){
+  S.listOpen=false;
+  const lb=$('#lobby-browser'); if(lb) lb.style.display='none';
+  const b=$('#btn-list'); if(b) b.textContent='📋 Открыть список лобби';
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 let _flashT;
@@ -498,6 +504,9 @@ $('#btn-code-toggle').onclick=()=>{
   if(b.style.display!=='none')$('#room-input').focus();
 };
 $('#btn-refresh').onclick=()=>socket.emit('enterBrowser');
+function openList(){ S.listOpen=true; $('#lobby-browser').style.display='block'; $('#btn-list').textContent='✕ Скрыть список лобби'; socket.emit('enterBrowser'); }
+function closeList(){ S.listOpen=false; $('#lobby-browser').style.display='none'; $('#btn-list').textContent='📋 Открыть список лобби'; socket.emit('leaveBrowser'); }
+$('#btn-list').onclick=()=>{ S.listOpen?closeList():openList(); };
 $('#btn-create').onclick=()=>{
   const name=$('#nick').value.trim(); if(!name)return setErr('введи ник');
   socket.emit('createLobby',{name},res=>{ if(!res.ok)return setErr(res.error||'ошибка'); S.id=res.playerId;S.room=res.roomCode; });
@@ -526,7 +535,7 @@ socket.on('lobbyList',list=>{
     ul.appendChild(li);
   });
 });
-socket.on('connect',()=>{ if(S.phase==='home') socket.emit('enterBrowser'); });
+socket.on('connect',()=>{ if(S.phase==='home' && S.listOpen) socket.emit('enterBrowser'); });
 
 /* =================== ЛОББИ =================== */
 socket.on('lobbyUpdate',d=>{
@@ -726,7 +735,7 @@ socket.on('chatMsg',m=>{
   const b=$('#chat-body');
   const mine=(S.mySlot!=null && m.slot===S.mySlot);
   const d=document.createElement('div'); d.className='chat-msg'+(mine?' mine':'');
-  d.innerHTML=`<span class="who">#${m.slot+1}${mine?' (ты)':''}</span>${esc(m.text)}`;
+  d.innerHTML=`<span class="who">#${m.slot+1}</span><span class="nick" style="color:var(--dim);font-size:11px;margin-right:7px">${symbolsFor(m.slot)}</span>${mine?'<span class="who" style="color:var(--good)">ты:</span> ':''}${esc(m.text)}`;
   b.appendChild(d); b.scrollTop=b.scrollHeight;
   if($('#chat').classList.contains('hidden')) $('#chat-toggle').classList.add('unread');
 });
