@@ -234,10 +234,38 @@
   }
   .ll-join:hover{box-shadow:0 0 16px var(--glow-soft);text-shadow:0 0 8px var(--glow)}
   .ll-join:disabled{opacity:.35;cursor:not-allowed;border-color:var(--line);color:var(--dim)}
+
+  /* ---------- Артём / роли / кик ---------- */
+  .artem-banner{
+    text-align:center;color:var(--gold);font-size:13px;letter-spacing:.08em;
+    border:1px solid var(--gold);border-radius:12px;padding:12px;margin-bottom:16px;
+    background:rgba(255,216,107,.07);box-shadow:0 0 18px rgba(255,216,107,.18);
+  }
+  .role-badge{
+    text-align:center;font-size:12px;letter-spacing:.1em;margin-bottom:14px;
+    padding:8px;border-radius:10px;border:1px solid var(--line);
+  }
+  .role-badge.artem{color:var(--gold);border-color:var(--gold);background:rgba(255,216,107,.06)}
+  .role-badge.crew{color:var(--good);border-color:rgba(91,255,176,.3)}
+  .btn.danger{border-color:rgba(255,91,110,.4);color:#ff8d9b;letter-spacing:.1em;margin-bottom:6px}
+  .btn.danger:hover:not(:disabled){box-shadow:0 0 22px rgba(255,91,110,.22);text-shadow:0 0 8px rgba(255,91,110,.5);border-color:var(--danger)}
+  .slot.out{opacity:.32;text-decoration:line-through}
+  .slot.out .idx{text-decoration:none}
+  .flash{
+    position:fixed;left:50%;top:20px;transform:translateX(-50%) translateY(-16px);z-index:30;
+    background:rgba(10,14,22,.96);border:1px solid var(--line);border-radius:12px;
+    padding:13px 20px;font-size:13.5px;letter-spacing:.04em;text-align:center;max-width:92vw;
+    opacity:0;pointer-events:none;transition:.35s;box-shadow:0 10px 44px rgba(0,0,0,.6);
+  }
+  .flash.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .flash.good{border-color:var(--good);color:var(--good)}
+  .flash.bad{border-color:var(--danger);color:var(--danger)}
+  .vote-opt.skip{border-style:dashed;color:var(--dim)}
 </style>
 </head>
 <body>
 <canvas id="stars"></canvas>
+<div id="flash" class="flash"></div>
 <div class="wrap">
 
   <!-- ГЛАВНЫЙ ЭКРАН -->
@@ -277,13 +305,16 @@
       <div id="lobby-code" class="code">----</div>
       <div class="hint">скажи код друзьям, чтобы они вошли</div>
     </div>
+    <div id="artem-banner" class="artem-banner" style="display:none">🎭 ты выбрал быть АРТЁМОМ — не выдай себя</div>
     <ul id="players" class="players"></ul>
+    <button id="btn-action" class="btn primary">Я АРТЁМ</button>
     <div id="lobby-status" class="progress"></div>
     <button id="btn-leave" class="btn ghost mt">← выйти</button>
   </section>
 
   <!-- ИГРА -->
   <section id="screen-game" class="screen">
+    <div id="role-badge" class="role-badge" style="display:none"></div>
     <div class="q-head">
       <div id="q-num" class="q-num">вопрос 1</div>
       <div id="q-text" class="q-text">—</div>
@@ -299,11 +330,8 @@
       </div>
     </div>
 
-    <div id="host-controls" class="row" style="display:none">
-      <button id="btn-next" class="btn small">Следующий вопрос</button>
-      <button id="btn-vote" class="btn small primary">К голосованию</button>
-    </div>
-    <div id="wait-host" class="progress" style="display:none">раунд завершён · ждём ведущего…</div>
+    <button id="btn-callvote" class="btn danger">🚨 Голосование · кикнуть игрока</button>
+    <div id="spectator-note" class="progress" style="display:none;color:var(--danger)">ты выбыл — теперь наблюдаешь</div>
 
     <div class="log">
       <h3>ответы</h3>
@@ -314,10 +342,11 @@
   <!-- ГОЛОСОВАНИЕ -->
   <section id="screen-voting" class="screen">
     <div class="brand" style="margin-bottom:24px">
-      <h1 style="font-size:clamp(26px,7vw,42px)">КТО АРТЁМ?</h1>
-      <div class="sub" style="margin-top:12px">выбери одного</div>
+      <h1 style="font-size:clamp(26px,7vw,42px)">КОГО КИКНУТЬ?</h1>
+      <div class="sub" style="margin-top:12px">выбери номер игрока</div>
     </div>
     <div id="vote-grid" class="vote-grid"></div>
+    <div id="vote-spectator" class="progress" style="display:none;color:var(--danger)">ты выбыл — голосовать нельзя</div>
     <div id="vote-progress" class="progress"></div>
   </section>
 
@@ -384,49 +413,46 @@ function scrambleSpan(slot){
 
 /* =================== СОСТОЯНИЕ =================== */
 const socket=io();
-const S={ id:null,room:null,host:false,phase:'home',
-  mySlot:null,isArtem:false,slotCount:0,
-  currentSlot:null,question:null,questionNum:0,
-  players:[], log:{} };
+const S={ id:null, room:null, host:false, phase:'home',
+  mySlot:null, isArtem:false, artemClaimed:false,
+  slotCount:0, totalQuestions:0,
+  slotsAlive:{}, responderSlot:null, questionNum:0,
+  players:[], log:[] };
 
 const $=s=>document.querySelector(s);
 const screens=['home','lobby','game','voting','results'];
 function show(name){
-  const prev=S.phase;
-  S.phase=name;
+  const prev=S.phase; S.phase=name;
   screens.forEach(s=>$('#screen-'+s).classList.toggle('active',s===name));
-  // на главном экране — подписываемся на список лобби; уходя — отписываемся
   if(name==='home') socket.emit('enterBrowser');
   else if(prev==='home') socket.emit('leaveBrowser');
 }
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+let _flashT;
+function flash(msg,kind){
+  const f=$('#flash'); f.textContent=msg; f.className='flash show '+(kind||'');
+  clearTimeout(_flashT); _flashT=setTimeout(()=>{f.className='flash '+(kind||'');},2800);
+}
+function setErr(t){$('#home-err').textContent=t;}
 
 /* =================== ГЛАВНЫЙ ЭКРАН =================== */
 $('#btn-code-toggle').onclick=()=>{
   const b=$('#join-box'); b.style.display=b.style.display==='none'?'flex':'none';
-  if(b.style.display!=='none') $('#room-input').focus();
+  if(b.style.display!=='none')$('#room-input').focus();
 };
 $('#btn-refresh').onclick=()=>socket.emit('enterBrowser');
-
 $('#btn-create').onclick=()=>{
-  const name=$('#nick').value.trim();
-  if(!name)return setErr('введи ник');
-  socket.emit('createLobby',{name},res=>{
-    if(!res.ok)return setErr(res.error||'ошибка');
-    S.id=res.playerId;S.room=res.roomCode;
-  });
+  const name=$('#nick').value.trim(); if(!name)return setErr('введи ник');
+  socket.emit('createLobby',{name},res=>{ if(!res.ok)return setErr(res.error||'ошибка'); S.id=res.playerId;S.room=res.roomCode; });
 };
 function joinByCode(code){
   const name=$('#nick').value.trim();
   if(!name){setErr('сначала введи ник');$('#nick').focus();return;}
-  if(!code)return setErr('введи код лобби');
-  socket.emit('joinLobby',{name,roomCode:code},res=>{
-    if(!res.ok)return setErr(res.error||'ошибка');
-    S.id=res.playerId;S.room=res.roomCode;
-  });
+  if(!code)return setErr('введи код');
+  socket.emit('joinLobby',{name,roomCode:code},res=>{ if(!res.ok)return setErr(res.error||'ошибка'); S.id=res.playerId;S.room=res.roomCode; });
 }
 $('#btn-join').onclick=()=>joinByCode($('#room-input').value.trim().toUpperCase());
 
-/* живой список открытых лобби */
 socket.on('lobbyList',list=>{
   const ul=$('#lobby-list');ul.innerHTML='';
   $('#lobby-empty').style.display=list.length?'none':'block';
@@ -443,172 +469,177 @@ socket.on('lobbyList',list=>{
     ul.appendChild(li);
   });
 });
-
-function setErr(t){$('#home-err').textContent=t;}
-
-// подписаться на список лобби сразу и при каждом (пере)подключении
 socket.on('connect',()=>{ if(S.phase==='home') socket.emit('enterBrowser'); });
-if(socket.connected && S.phase==='home') socket.emit('enterBrowser');
 
 /* =================== ЛОББИ =================== */
 socket.on('lobbyUpdate',d=>{
-  S.room=d.roomCode;S.host=(d.hostId===S.id);S.players=d.players;
+  S.room=d.roomCode; S.host=(d.hostId===S.id); S.players=d.players; S.artemClaimed=d.artemClaimed;
   $('#lobby-code').textContent=d.roomCode;
+
   const ul=$('#players');ul.innerHTML='';
   d.players.forEach(p=>{
     const me=p.id===S.id;
     const li=document.createElement('li');
     li.className=(me?'me ':'')+(p.ready?'ready':'');
-    li.innerHTML=`
-      <span class="p-name">${esc(p.name)}${me?'<span class="tag">(ты)</span>':''}</span>
-      <span class="p-state ${p.ready?'on':''}">${p.ready?'готов':'ждёт'}</span>
-      <button class="iam-btn ${me?'self':''} ${p.ready?'on':''}" ${me?'':'disabled'}>я артём</button>`;
-    if(me) li.querySelector('.iam-btn').onclick=()=>socket.emit('toggleReady');
+    li.innerHTML=`<span class="p-name">${esc(p.name)}${me?'<span class="tag">(ты)</span>':''}</span>
+      <span class="p-state ${p.ready?'on':''}">${p.ready?'готов':'ждёт'}</span>`;
     ul.appendChild(li);
   });
+
+  // баннер «ты Артём» только тому, кто забрал роль
+  $('#artem-banner').style.display=(S.isArtem && d.artemClaimed)?'block':'none';
+
+  // единая кнопка действия
+  const me=d.players.find(p=>p.id===S.id);
+  const myReady=me?me.ready:false;
+  const btn=$('#btn-action');
+  if(!d.artemClaimed){ btn.textContent='Я АРТЁМ'; btn.className='btn primary'; btn.disabled=false; }
+  else { btn.textContent=myReady?'ГОТОВ ✓':'ГОТОВ'; btn.className='btn'+(myReady?' ready-on':''); btn.disabled=false; }
+
   const need=d.minPlayers, cur=d.players.length, ready=d.players.filter(p=>p.ready).length;
-  $('#lobby-status').textContent = cur<need
-    ? `нужно ещё ${need-cur} игрок(а) для старта`
-    : `готовы ${ready}/${cur} · когда все нажмут «я артём» — старт`;
-  if(S.phase!=='lobby' && S.phase!=='game' && S.phase!=='voting' && S.phase!=='results') show('lobby');
-  if(S.phase==='home') show('lobby');
+  let st;
+  if(cur<need) st=`нужно ещё ${need-cur} игрок(ов) · минимум ${need}`;
+  else if(!d.artemClaimed) st='кто-то должен забрать роль Артёма';
+  else st=`готовы ${ready}/${cur} — когда все, игра начнётся`;
+  $('#lobby-status').textContent=st;
+
+  if(S.phase==='home' || (S.phase!=='lobby'&&S.phase!=='game'&&S.phase!=='voting'&&S.phase!=='results')) show('lobby');
 });
+
+$('#btn-action').onclick=()=>{
+  if(!S.artemClaimed){
+    socket.emit('claimArtem',res=>{
+      if(res&&res.ok){ S.isArtem=true; $('#artem-banner').style.display='block'; flash('Ты — Артём 🎭 не выдай себя','good'); }
+      else flash('Роль Артёма уже заняли','bad');
+    });
+  } else {
+    socket.emit('toggleReady');
+  }
+};
 $('#btn-leave').onclick=leave;
 $('#btn-leave2').onclick=leave;
-function leave(){socket.emit('leaveLobby');resetLocal();show('home');setErr('');}
-function resetLocal(){S.room=null;S.host=false;S.mySlot=null;S.isArtem=false;S.log={};}
+function leave(){ socket.emit('leaveLobby'); resetLocal(); show('home'); setErr(''); }
+function resetLocal(){ S.room=null;S.host=false;S.mySlot=null;S.isArtem=false;S.artemClaimed=false;S.log=[];S.slotsAlive={}; $('#artem-banner').style.display='none'; }
 
 /* =================== ИГРА =================== */
 socket.on('gameStarted',d=>{
-  S.mySlot=d.yourSlot;S.isArtem=d.isArtem;S.slotCount=d.slotCount;S.log={};
+  S.mySlot=d.yourSlot; S.isArtem=d.isArtem; S.slotCount=d.slotCount; S.totalQuestions=d.totalQuestions;
+  S.log=[]; S.slotsAlive={}; d.players.forEach(p=>S.slotsAlive[p.slot]=p.alive);
   $('#log-body').innerHTML='';
+  const rb=$('#role-badge');
+  rb.style.display='block';
+  rb.className='role-badge '+(d.isArtem?'artem':'crew');
+  rb.textContent=d.isArtem?'🎭 ты АРТЁМ — тебе не показывают вопрос, когда твой ход':'ты в команде — вычисли Артёма';
   show('game');
 });
-socket.on('newQuestion',d=>{
-  S.questionNum=d.questionNumber;S.question=d.question;
-  $('#q-num').textContent='вопрос '+d.questionNumber;
-  if(d.question===null){
-    $('#q-text').textContent='🎭 ТЫ АРТЁМ — вопрос скрыт. Импровизируй!';
-    $('#q-text').classList.add('artem');
-  }else{
-    $('#q-text').textContent=d.question;
-    $('#q-text').classList.remove('artem');
-  }
-  S.log[d.questionNumber]={question:d.question,entries:[]};
-  renderLog();
-  $('#host-controls').style.display='none';
-  $('#wait-host').style.display='none';
-});
-socket.on('turnUpdate',d=>{
-  S.currentSlot=d.currentSlot;
+
+socket.on('question',d=>{
+  S.questionNum=d.questionNumber; S.responderSlot=d.responderSlot;
+  $('#q-num').textContent=`вопрос ${d.questionNumber} / ${d.total}`;
+  const qt=$('#q-text');
+  if(d.youAnswer && d.blind){ qt.textContent='🎭 Твой ход! Вопрос скрыт — выкручивайся'; qt.classList.add('artem'); }
+  else { qt.textContent=d.question||'…'; qt.classList.remove('artem'); }
+
   renderSlots();
-  const mine=d.currentSlot===S.mySlot;
   $('#live-text').innerHTML='';
-  $('#answer-who').innerHTML = mine
-    ? 'твой ход — печатай ответ'
-    : 'отвечает '+inlineSlot(d.currentSlot);
+  const mine=d.youAnswer;
+  $('#answer-who').innerHTML = mine ? 'твой ход — печатай ответ' : 'отвечает '+inlineSlot(d.responderSlot);
   $('#my-input').style.display=mine?'block':'none';
-  if(mine){const a=$('#answer-area');a.value='';a.disabled=false;$('#btn-submit').disabled=false;setTimeout(()=>a.focus(),50);}
-  $('#host-controls').style.display='none';
-  $('#wait-host').style.display='none';
+  if(mine){ const a=$('#answer-area'); a.value=''; a.disabled=false; $('#btn-submit').disabled=false; setTimeout(()=>a.focus(),60); }
+
+  const alive=S.slotsAlive[S.mySlot]!==false;
+  $('#btn-callvote').style.display=alive?'block':'none';
+  $('#btn-callvote').disabled=false;
+  $('#spectator-note').style.display=alive?'none':'block';
 });
+
 socket.on('liveTyping',d=>{
-  if(d.slot===S.mySlot)return; // свой текст уже виден
+  if(d.slot===S.mySlot)return;
   $('#live-text').innerHTML=esc(d.text)+'<span class="caret"></span>';
 });
 socket.on('answerSubmitted',d=>{
-  const q=S.log[d.questionNumber]; if(q)q.entries.push({slot:d.slot,text:d.text});
+  S.log.push({questionNumber:d.questionNumber,question:d.question,slot:d.slot,text:d.text});
   renderLog();
-  if(d.slot===S.mySlot){$('#my-input').style.display='none';}
+  if(d.slot===S.mySlot) $('#my-input').style.display='none';
   $('#live-text').innerHTML=esc(d.text);
   $('#answer-who').innerHTML=inlineSlot(d.slot)+' ответил';
 });
-socket.on('roundComplete',d=>{
-  S.host=(d.hostId===S.id);
-  $('#my-input').style.display='none';
-  if(S.host){$('#host-controls').style.display='flex';$('#wait-host').style.display='none';}
-  else{$('#wait-host').style.display='block';$('#host-controls').style.display='none';}
-});
 
 const area=$('#answer-area');
-area.addEventListener('input',()=>{
-  socket.emit('typing',{text:area.value});
-});
-$('#btn-submit').onclick=()=>{
-  socket.emit('submitAnswer',{text:area.value});
-  area.disabled=true;$('#btn-submit').disabled=true;
-};
-$('#btn-next').onclick=()=>socket.emit('nextQuestion');
-$('#btn-vote').onclick=()=>socket.emit('startVoting');
+area.addEventListener('input',()=>socket.emit('typing',{text:area.value}));
+$('#btn-submit').onclick=()=>{ socket.emit('submitAnswer',{text:area.value}); area.disabled=true; $('#btn-submit').disabled=true; };
+$('#btn-callvote').onclick=()=>{ socket.emit('callVote'); $('#btn-callvote').disabled=true; };
 
 function renderSlots(){
   const box=$('#slots');box.innerHTML='';
   for(let i=0;i<S.slotCount;i++){
+    const dead=S.slotsAlive[i]===false;
     const d=document.createElement('div');
-    d.className='slot'+(i===S.currentSlot?' turn':'')+(i===S.mySlot?' me':'');
+    d.className='slot'+(i===S.responderSlot?' turn':'')+(i===S.mySlot?' me':'')+(dead?' out':'');
     d.innerHTML=`<span class="idx">#${i+1}</span>${scrambleSpan(i)}${i===S.mySlot?'<span class="idx">(ты)</span>':''}`;
     box.appendChild(d);
   }
 }
 function inlineSlot(slot){return `<b style="color:var(--ink)">#${slot+1}</b> `+scrambleSpan(slot);}
-
+function miniScramble(slot){return `<span class="scramble" data-len="4" style="font-size:11px;color:var(--dim)"></span>`;}
 function renderLog(){
   const body=$('#log-body');body.innerHTML='';
-  Object.keys(S.log).sort((a,b)=>a-b).forEach(qn=>{
-    const q=S.log[qn];
+  S.log.forEach(e=>{
     const div=document.createElement('div');div.className='log-q';
-    const qLabel = q.question===null ? '🎭 (скрытый вопрос Артёма)' : esc(q.question);
-    let html=`<div class="lq">${qn}. ${qLabel}</div>`;
-    q.entries.forEach(e=>{
-      html+=`<div class="log-a"><span class="li">#${e.slot+1} ${miniScramble(e.slot)}</span><span>${esc(e.text)}</span></div>`;
-    });
-    div.innerHTML=html;body.appendChild(div);
+    div.innerHTML=`<div class="lq">${e.questionNumber}. ${esc(e.question||'')}</div>
+      <div class="log-a"><span class="li">#${e.slot+1} ${miniScramble(e.slot)}</span><span>${esc(e.text)}</span></div>`;
+    body.appendChild(div);
   });
 }
-function miniScramble(slot){const len=4;return `<span class="scramble" data-len="${len}" style="font-size:11px;color:var(--dim)"></span>`;}
 
-/* =================== ГОЛОСОВАНИЕ =================== */
-let myVote=null;
+/* =================== ГОЛОСОВАНИЕ (КИК) =================== */
 socket.on('votingStarted',d=>{
-  myVote=null;show('voting');
+  show('voting');
+  const alive=S.slotsAlive[S.mySlot]!==false;
   const g=$('#vote-grid');g.innerHTML='';
-  d.slots.forEach(slot=>{
-    if(slot===S.mySlot)return; // за себя не голосуем
-    const b=document.createElement('button');
-    b.className='vote-opt';
+  d.candidates.forEach(slot=>{
+    if(slot===S.mySlot)return;
+    const b=document.createElement('button');b.className='vote-opt';
     b.innerHTML=`<span class="vi">#${slot+1}</span>${scrambleSpan(slot)}`;
-    b.onclick=()=>{
-      myVote=slot;
-      socket.emit('castVote',{slot});
-      [...g.children].forEach(c=>c.classList.remove('picked'));
-      b.classList.add('picked');
-    };
+    b.onclick=()=>castKick(slot,g,b);
     g.appendChild(b);
   });
-  $('#vote-progress').textContent='голосуют…';
+  const sk=document.createElement('button');sk.className='vote-opt skip';
+  sk.innerHTML=`<span class="vi">∅</span>пропустить — никого не выгонять`;
+  sk.onclick=()=>castKick('skip',g,sk);
+  g.appendChild(sk);
+
+  $('#vote-spectator').style.display=alive?'none':'block';
+  if(!alive){ [...g.children].forEach(c=>c.disabled=true); }
+  $('#vote-progress').textContent='кого выгнать?';
 });
-socket.on('voteUpdate',d=>{
-  $('#vote-progress').textContent=`проголосовало ${d.votedCount}/${d.total}`;
+function castKick(choice,g,btn){
+  socket.emit('castVote',{choice});
+  [...g.children].forEach(c=>c.classList.remove('picked'));
+  btn.classList.add('picked');
+}
+socket.on('voteUpdate',d=>{ $('#vote-progress').textContent=`проголосовало ${d.votedCount}/${d.total}`; });
+socket.on('voteResult',d=>{
+  if(d.kickedSlot===null){ flash('Никого не выгнали','bad'); }
+  else if(d.wasArtem){ flash(`#${d.kickedSlot+1} был АРТЁМОМ! 🎉`,'good'); }
+  else { flash(`#${d.kickedSlot+1} — НЕ Артём. Игрок выбыл`,'bad'); S.slotsAlive[d.kickedSlot]=false; }
+  if(!d.wasArtem) show('game'); // если матч продолжается — сервер пришлёт следующий вопрос
 });
 
 /* =================== РЕЗУЛЬТАТЫ =================== */
 socket.on('results',d=>{
   show('results');
-  const v=$('#verdict');
-  v.className='verdict '+(d.groupWon?'win':'lose');
-  $('#verdict-big').textContent=d.groupWon?'АРТЁМ РАСКРЫТ!':'АРТЁМ УСКОЛЬЗНУЛ';
-  $('#verdict-small').textContent=d.groupWon
-    ?'коллектив вычислил того самого'
-    :'вы не угадали — Артём победил';
+  const crew=d.winner==='crew';
+  const v=$('#verdict'); v.className='verdict '+(crew?'win':'lose');
+  $('#verdict-big').textContent=crew?'АРТЁМ РАСКРЫТ!':'АРТЁМ ПОБЕДИЛ';
+  $('#verdict-small').textContent=crew?'команда вычислила его голосованием':'он дожил до конца вопросов';
   const ul=$('#res-list');ul.innerHTML='';
   d.players.forEach(p=>{
-    const cnt=d.votes[p.slot]||0;
     const li=document.createElement('li');
     li.className=p.wasArtem?'artem':'';
-    li.innerHTML=`
-      <span class="vi" style="color:var(--dim);font-size:12px;min-width:26px">#${p.slot+1}</span>
+    li.innerHTML=`<span class="vi" style="color:var(--dim);font-size:12px;min-width:26px">#${p.slot+1}</span>
       <span class="rn">${esc(p.name)} ${p.wasArtem?'<span class="crown">🎭 АРТЁМ</span>':''}</span>
-      <span class="votes">${cnt} голос(ов)</span>`;
+      <span class="votes">${p.alive?'в игре':'выбыл'}</span>`;
     ul.appendChild(li);
   });
   if(S.host){$('#btn-again').style.display='block';$('#again-wait').style.display='none';}
@@ -616,15 +647,10 @@ socket.on('results',d=>{
 });
 $('#btn-again').onclick=()=>socket.emit('playAgain');
 
-socket.on('returnToLobby',()=>{ show('lobby'); });
-socket.on('playerDropped',d=>{
-  // мягкое уведомление: вернёмся в лобби автоматически по returnToLobby
-});
+socket.on('returnToLobby',()=>{ S.isArtem=false; S.artemClaimed=false; $('#artem-banner').style.display='none'; show('lobby'); });
+socket.on('playerDropped',()=>{ flash('Игрок вышел — матч сброшен в лобби','bad'); });
 
-/* =================== УТИЛИТЫ =================== */
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-
-// Enter в поле кода = войти
+/* enter-хоткеи на главном экране */
 $('#room-input').addEventListener('keydown',e=>{if(e.key==='Enter')$('#btn-join').click();});
 $('#nick').addEventListener('keydown',e=>{if(e.key==='Enter')$('#btn-create').click();});
 </script>
