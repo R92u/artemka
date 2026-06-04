@@ -261,11 +261,70 @@
   .flash.good{border-color:var(--good);color:var(--good)}
   .flash.bad{border-color:var(--danger);color:var(--danger)}
   .vote-opt.skip{border-style:dashed;color:var(--dim)}
+  .nick{font-weight:600;letter-spacing:.05em}
+
+  /* ---------- Чат ---------- */
+  .chat-toggle{
+    position:fixed;left:14px;bottom:14px;z-index:26;display:none;
+    width:50px;height:50px;border-radius:50%;cursor:pointer;
+    background:rgba(10,14,22,.92);border:1px solid var(--line);color:var(--ink);
+    font-size:20px;transition:.25s;
+  }
+  .chat-toggle:hover{border-color:var(--glow);box-shadow:0 0 18px var(--glow-soft)}
+  .chat-toggle .dot{position:absolute;top:7px;right:7px;width:10px;height:10px;border-radius:50%;background:var(--danger);display:none;box-shadow:0 0 8px var(--danger)}
+  .chat-toggle.unread .dot{display:block}
+  .chat{
+    position:fixed;left:14px;top:14px;bottom:14px;z-index:25;
+    width:clamp(220px,25vw,300px);display:flex;flex-direction:column;
+    background:rgba(8,11,18,.95);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 10px 50px rgba(0,0,0,.6);backdrop-filter:blur(6px);
+    transition:transform .3s ease,opacity .3s ease;
+  }
+  .chat.hidden{transform:translateX(-115%);opacity:0;pointer-events:none}
+  .chat-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:13px 15px;border-bottom:1px solid var(--line);
+    color:var(--dim);font-size:11px;letter-spacing:.3em;text-transform:uppercase;
+  }
+  .chat-x{background:transparent;border:none;color:var(--dim);font-size:22px;cursor:pointer;line-height:1}
+  .chat-x:hover{color:var(--ink)}
+  .chat-body{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:9px}
+  .chat-msg{font-size:13.5px;word-break:break-word;line-height:1.4}
+  .chat-msg .who{color:var(--glow);font-size:11px;margin-right:6px;font-weight:600}
+  .chat-msg.mine .who{color:var(--good)}
+  .chat-sys{color:var(--dim);font-size:11.5px;text-align:center;font-style:italic;opacity:.8}
+  .chat-input{display:flex;gap:8px;padding:11px;border-top:1px solid var(--line)}
+  .chat-input input{
+    flex:1;min-width:0;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);font-family:var(--mono);font-size:14px;padding:10px 12px;outline:none;
+  }
+  .chat-input input:focus{border-color:var(--glow)}
+  .chat-input button{
+    flex:0 0 auto;width:42px;border:1px solid var(--line);border-radius:10px;background:transparent;
+    color:var(--ink);font-size:16px;cursor:pointer;transition:.25s;
+  }
+  .chat-input button:hover{border-color:var(--glow);box-shadow:0 0 14px var(--glow-soft)}
+  @media (max-width:600px){ .chat{width:min(86vw,330px)} }
 </style>
 </head>
 <body>
 <canvas id="stars"></canvas>
 <div id="flash" class="flash"></div>
+
+<!-- ЧАТ -->
+<div id="chat" class="chat hidden">
+  <div class="chat-head">
+    <span>чат комнаты</span>
+    <button id="chat-close" class="chat-x" title="свернуть">×</button>
+  </div>
+  <div id="chat-body" class="chat-body"></div>
+  <div class="chat-input">
+    <input id="chat-text" maxlength="200" placeholder="сообщение..." autocomplete="off">
+    <button id="chat-send" title="отправить">➤</button>
+  </div>
+</div>
+<button id="chat-toggle" class="chat-toggle" title="чат">💬<span class="dot"></span></button>
+
 <div class="wrap">
 
   <!-- ГЛАВНЫЙ ЭКРАН -->
@@ -396,27 +455,22 @@
   addEventListener('resize',size);size();loop();
 })();
 
-/* =================== МЕРЦАЮЩИЕ НИКИ =================== */
+/* =================== СКРЫТЫЕ НИКИ (статичные символы) =================== */
 const SYM='█▓▒░#@%&§※◆◇⌗▚▞✶✷∎';
-function scrambleStr(len){let s='';for(let i=0;i<len;i++)s+=SYM[(Math.random()*SYM.length)|0];return s}
-setInterval(()=>{
-  document.querySelectorAll('.scramble').forEach(el=>{
-    const len=+el.dataset.len||7;
-    el.textContent=scrambleStr(len);
-  });
-},90);
-// длина «имени» зависит от слота, чтобы выглядело по-разному, но стабильно по ширине
-function scrambleSpan(slot){
-  const len=6+((slot*3+4)%5); // 6..10
-  return `<span class="scramble" data-len="${len}"></span>`;
+function randSym(len){let s='';for(let i=0;i<len;i++)s+=SYM[(Math.random()*SYM.length)|0];return s}
+// у каждого слота свой ПОСТОЯННЫЙ набор символов на матч (не меняется)
+function symbolsFor(slot){
+  if(S.slotSymbols[slot]==null){ const len=6+((slot*3+4)%5); S.slotSymbols[slot]=randSym(len); }
+  return S.slotSymbols[slot];
 }
+function scrambleSpan(slot){ return `<span class="nick">${symbolsFor(slot)}</span>`; }
 
 /* =================== СОСТОЯНИЕ =================== */
 const socket=io();
 const S={ id:null, room:null, host:false, phase:'home',
   mySlot:null, isArtem:false, artemClaimed:false,
   slotCount:0, totalQuestions:0,
-  slotsAlive:{}, responderSlot:null, questionNum:0,
+  slotsAlive:{}, slotSymbols:{}, responderSlot:null, questionNum:0,
   players:[], log:[] };
 
 const $=s=>document.querySelector(s);
@@ -424,6 +478,9 @@ const screens=['home','lobby','game','voting','results'];
 function show(name){
   const prev=S.phase; S.phase=name;
   screens.forEach(s=>$('#screen-'+s).classList.toggle('active',s===name));
+  const inRoom = name!=='home';
+  $('#chat-toggle').style.display = inRoom ? 'block' : 'none';
+  if(!inRoom) $('#chat').classList.add('hidden');
   if(name==='home') socket.emit('enterBrowser');
   else if(prev==='home') socket.emit('leaveBrowser');
 }
@@ -491,6 +548,7 @@ socket.on('lobbyUpdate',d=>{
 
   // единая кнопка действия
   const me=d.players.find(p=>p.id===S.id);
+  if(me) S.mySlot=me.slot;
   const myReady=me?me.ready:false;
   const btn=$('#btn-action');
   if(!d.artemClaimed){ btn.textContent='Я АРТЁМ'; btn.className='btn primary'; btn.disabled=false; }
@@ -519,13 +577,14 @@ $('#btn-action').onclick=()=>{
 $('#btn-leave').onclick=leave;
 $('#btn-leave2').onclick=leave;
 function leave(){ socket.emit('leaveLobby'); resetLocal(); show('home'); setErr(''); }
-function resetLocal(){ S.room=null;S.host=false;S.mySlot=null;S.isArtem=false;S.artemClaimed=false;S.log=[];S.slotsAlive={}; $('#artem-banner').style.display='none'; }
+function resetLocal(){ S.room=null;S.host=false;S.mySlot=null;S.isArtem=false;S.artemClaimed=false;S.log=[];S.slotsAlive={};S.slotSymbols={}; $('#artem-banner').style.display='none'; clearChat(); }
 
 /* =================== ИГРА =================== */
 socket.on('gameStarted',d=>{
   S.mySlot=d.yourSlot; S.isArtem=d.isArtem; S.slotCount=d.slotCount; S.totalQuestions=d.totalQuestions;
-  S.log=[]; S.slotsAlive={}; d.players.forEach(p=>S.slotsAlive[p.slot]=p.alive);
+  S.log=[]; S.slotsAlive={}; S.slotSymbols={}; d.players.forEach(p=>S.slotsAlive[p.slot]=p.alive);
   $('#log-body').innerHTML='';
+  clearChat(); chatSys('матч начался · ники скрыты — обсуждайте по номерам');
   const rb=$('#role-badge');
   rb.style.display='block';
   rb.className='role-badge '+(d.isArtem?'artem':'crew');
@@ -581,7 +640,7 @@ function renderSlots(){
   }
 }
 function inlineSlot(slot){return `<b style="color:var(--ink)">#${slot+1}</b> `+scrambleSpan(slot);}
-function miniScramble(slot){return `<span class="scramble" data-len="4" style="font-size:11px;color:var(--dim)"></span>`;}
+function miniScramble(slot){return `<span class="nick" style="font-size:11px;color:var(--dim)">${symbolsFor(slot).slice(0,4)}</span>`;}
 function renderLog(){
   const body=$('#log-body');body.innerHTML='';
   S.log.forEach(e=>{
@@ -642,13 +701,35 @@ socket.on('results',d=>{
       <span class="votes">${p.alive?'в игре':'выбыл'}</span>`;
     ul.appendChild(li);
   });
-  if(S.host){$('#btn-again').style.display='block';$('#again-wait').style.display='none';}
-  else{$('#btn-again').style.display='none';$('#again-wait').style.display='block';}
+  $('#btn-again').style.display='block';
+  $('#again-wait').style.display='none';
 });
 $('#btn-again').onclick=()=>socket.emit('playAgain');
 
 socket.on('returnToLobby',()=>{ S.isArtem=false; S.artemClaimed=false; $('#artem-banner').style.display='none'; show('lobby'); });
 socket.on('playerDropped',()=>{ flash('Игрок вышел — матч сброшен в лобби','bad'); });
+
+/* =================== ЧАТ =================== */
+function openChat(){ $('#chat').classList.remove('hidden'); $('#chat-toggle').classList.remove('unread'); setTimeout(()=>$('#chat-text').focus(),60); }
+function closeChat(){ $('#chat').classList.add('hidden'); }
+$('#chat-toggle').onclick=()=>{ $('#chat').classList.contains('hidden')?openChat():closeChat(); };
+$('#chat-close').onclick=closeChat;
+function sendChat(){ const t=$('#chat-text').value.trim(); if(!t)return; socket.emit('chat',{text:t}); $('#chat-text').value=''; }
+$('#chat-send').onclick=sendChat;
+$('#chat-text').addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();sendChat();} });
+function clearChat(){ $('#chat-body').innerHTML=''; }
+function chatSys(text){
+  const b=$('#chat-body'); const d=document.createElement('div'); d.className='chat-sys'; d.textContent=text;
+  b.appendChild(d); b.scrollTop=b.scrollHeight;
+}
+socket.on('chatMsg',m=>{
+  const b=$('#chat-body');
+  const mine=(S.mySlot!=null && m.slot===S.mySlot);
+  const d=document.createElement('div'); d.className='chat-msg'+(mine?' mine':'');
+  d.innerHTML=`<span class="who">#${m.slot+1}${mine?' (ты)':''}</span>${esc(m.text)}`;
+  b.appendChild(d); b.scrollTop=b.scrollHeight;
+  if($('#chat').classList.contains('hidden')) $('#chat-toggle').classList.add('unread');
+});
 
 /* enter-хоткеи на главном экране */
 $('#room-input').addEventListener('keydown',e=>{if(e.key==='Enter')$('#btn-join').click();});

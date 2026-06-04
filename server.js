@@ -542,11 +542,23 @@ io.on('connection', (socket) => {
     if (Object.keys(room.votes).length >= aliveCount) resolveKick(room);
   });
 
-  /* Играть снова */
+  /* Играть снова — из экрана результатов, лобби сохраняется */
   socket.on('playAgain', () => {
     const room = rooms[joinedRoom];
-    if (!room || socket.id !== room.hostId) return;
+    if (!room) return;
+    if (room.phase !== 'results') return;
     returnToLobby(room);
+  });
+
+  /* Чат комнаты */
+  socket.on('chat', ({ text }) => {
+    const room = rooms[joinedRoom];
+    if (!room) return;
+    const p = room.players[socket.id];
+    if (!p) return;
+    const msg = String(text || '').trim().slice(0, 200);
+    if (!msg) return;
+    io.to(room.code).emit('chatMsg', { slot: p.slot, text: msg });
   });
 
   socket.on('leaveLobby', () => leaveCurrentRoom());
