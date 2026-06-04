@@ -305,6 +305,33 @@
   }
   .chat-input button:hover{border-color:var(--glow);box-shadow:0 0 14px var(--glow-soft)}
   @media (max-width:600px){ .chat{width:min(86vw,330px)} }
+
+  /* ---------- История (правая панель) ---------- */
+  .hist-toggle{
+    position:fixed;right:14px;bottom:14px;z-index:26;display:none;
+    width:50px;height:50px;border-radius:50%;cursor:pointer;
+    background:rgba(10,14,22,.92);border:1px solid var(--line);color:var(--ink);
+    font-size:20px;transition:.25s;
+  }
+  .hist-toggle:hover{border-color:var(--glow);box-shadow:0 0 18px var(--glow-soft)}
+  .hist-toggle .dot{position:absolute;top:7px;right:7px;width:10px;height:10px;border-radius:50%;background:var(--glow);display:none;box-shadow:0 0 8px var(--glow)}
+  .hist-toggle.unread .dot{display:block}
+  .history{
+    position:fixed;right:14px;top:14px;bottom:14px;z-index:25;
+    width:clamp(230px,26vw,320px);display:flex;flex-direction:column;
+    background:rgba(8,11,18,.95);border:1px solid var(--line);border-radius:16px;
+    box-shadow:0 10px 50px rgba(0,0,0,.6);backdrop-filter:blur(6px);
+    transition:transform .3s ease,opacity .3s ease;
+  }
+  .history.hidden{transform:translateX(115%);opacity:0;pointer-events:none}
+  .history-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:13px 15px;border-bottom:1px solid var(--line);
+    color:var(--dim);font-size:11px;letter-spacing:.3em;text-transform:uppercase;
+  }
+  .history-body{flex:1;overflow-y:auto;padding:14px}
+  .history-body .empty{color:var(--dim);font-size:12.5px;text-align:center;margin-top:10px}
+  @media (max-width:600px){ .history{width:min(86vw,330px)} }
 </style>
 </head>
 <body>
@@ -324,6 +351,17 @@
   </div>
 </div>
 <button id="chat-toggle" class="chat-toggle" title="чат">💬<span class="dot"></span></button>
+
+<!-- ИСТОРИЯ ОТВЕТОВ (справа) -->
+<div id="history" class="history hidden">
+  <div class="history-head">
+    <span>история ответов</span>
+    <button id="history-close" class="chat-x" title="свернуть">×</button>
+  </div>
+  <div id="log-body" class="history-body"><div class="empty">пока ответов нет</div></div>
+</div>
+<button id="history-toggle" class="hist-toggle" title="история ответов">🗒️<span class="dot"></span></button>
+
 
 <div class="wrap">
 
@@ -392,11 +430,6 @@
 
     <button id="btn-callvote" class="btn danger">🚨 Голосование · кикнуть игрока</button>
     <div id="spectator-note" class="progress" style="display:none;color:var(--danger)">ты выбыл — теперь наблюдаешь</div>
-
-    <div class="log">
-      <h3>ответы</h3>
-      <div id="log-body"></div>
-    </div>
   </section>
 
   <!-- ГОЛОСОВАНИЕ -->
@@ -482,6 +515,9 @@ function show(name){
   const inRoom = name!=='home';
   $('#chat-toggle').style.display = inRoom ? 'block' : 'none';
   if(!inRoom) $('#chat').classList.add('hidden');
+  const inGame = (name==='game'||name==='voting'||name==='results');
+  $('#history-toggle').style.display = inGame ? 'block' : 'none';
+  if(!inGame) $('#history').classList.add('hidden');
   if(name==='home'){ resetList(); }
   else if(prev==='home' && S.listOpen){ socket.emit('leaveBrowser'); S.listOpen=false; }
 }
@@ -592,12 +628,12 @@ function resetLocal(){ S.room=null;S.host=false;S.mySlot=null;S.isArtem=false;S.
 socket.on('gameStarted',d=>{
   S.mySlot=d.yourSlot; S.isArtem=d.isArtem; S.slotCount=d.slotCount; S.totalQuestions=d.totalQuestions;
   S.log=[]; S.slotsAlive={}; S.slotSymbols={}; d.players.forEach(p=>S.slotsAlive[p.slot]=p.alive);
-  $('#log-body').innerHTML='';
+  $('#log-body').innerHTML='<div class="empty">пока ответов нет</div>';
   clearChat(); chatSys('матч начался · ники скрыты — обсуждайте по номерам');
   const rb=$('#role-badge');
   rb.style.display='block';
   rb.className='role-badge '+(d.isArtem?'artem':'crew');
-  rb.textContent=d.isArtem?'🎭 ты АРТЁМ — тебе не показывают вопрос, когда твой ход':'ты в команде — вычисли Артёма';
+  rb.textContent=d.isArtem?'🎭 ты АРТЁМ — отвечай как все, чтобы тебя не вычислили':'ты в команде — вычисли Артёма по его ответам';
   show('game');
 });
 
@@ -605,8 +641,8 @@ socket.on('question',d=>{
   S.questionNum=d.questionNumber; S.responderSlot=d.responderSlot;
   $('#q-num').textContent=`вопрос ${d.questionNumber} / ${d.total}`;
   const qt=$('#q-text');
-  if(d.youAnswer && d.blind){ qt.textContent='🎭 Твой ход! Вопрос скрыт — выкручивайся'; qt.classList.add('artem'); }
-  else { qt.textContent=d.question||'…'; qt.classList.remove('artem'); }
+  qt.textContent=d.question||'…';
+  qt.classList.remove('artem');
 
   renderSlots();
   $('#live-text').innerHTML='';
@@ -628,6 +664,7 @@ socket.on('liveTyping',d=>{
 socket.on('answerSubmitted',d=>{
   S.log.push({questionNumber:d.questionNumber,question:d.question,slot:d.slot,text:d.text});
   renderLog();
+  if($('#history').classList.contains('hidden')) $('#history-toggle').classList.add('unread');
   if(d.slot===S.mySlot) $('#my-input').style.display='none';
   $('#live-text').innerHTML=esc(d.text);
   $('#answer-who').innerHTML=inlineSlot(d.slot)+' ответил';
@@ -723,6 +760,11 @@ function openChat(){ $('#chat').classList.remove('hidden'); $('#chat-toggle').cl
 function closeChat(){ $('#chat').classList.add('hidden'); }
 $('#chat-toggle').onclick=()=>{ $('#chat').classList.contains('hidden')?openChat():closeChat(); };
 $('#chat-close').onclick=closeChat;
+/* история ответов (правая панель) */
+function openHistory(){ $('#history').classList.remove('hidden'); $('#history-toggle').classList.remove('unread'); }
+function closeHistory(){ $('#history').classList.add('hidden'); }
+$('#history-toggle').onclick=()=>{ $('#history').classList.contains('hidden')?openHistory():closeHistory(); };
+$('#history-close').onclick=closeHistory;
 function sendChat(){ const t=$('#chat-text').value.trim(); if(!t)return; socket.emit('chat',{text:t}); $('#chat-text').value=''; }
 $('#chat-send').onclick=sendChat;
 $('#chat-text').addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();sendChat();} });

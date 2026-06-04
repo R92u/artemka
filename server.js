@@ -330,14 +330,12 @@ function askQuestion(room) {
 
   for (const p of Object.values(room.players)) {
     const isResponder = p.id === responder.id;
-    const blind = isResponder && (p.id === room.artemId); // Артём не видит вопрос, когда отвечает
     io.to(p.id).emit('question', {
       questionNumber: room.askedCount,
       total: room.totalQuestions,
       responderSlot: responder.slot,
-      question: blind ? null : q,
-      youAnswer: isResponder,
-      blind
+      question: q,            // все, включая Артёма, видят один и тот же вопрос
+      youAnswer: isResponder
     });
   }
 }
